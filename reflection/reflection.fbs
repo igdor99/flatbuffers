@@ -20,6 +20,7 @@ enum BaseType : byte {
     ULong,
     Float,
     Double,
+    Array,
     String,
     Vector,
     Obj,     // Used for tables & structs.

@@ -529,7 +529,8 @@ CheckedError Parser::ParseType(Type &type) {
       NEXT();
       Type subtype;
       ECHECK(ParseType(subtype));
-      if (subtype.base_type == BASE_TYPE_VECTOR) {
+      if (subtype.base_type == BASE_TYPE_VECTOR || 
+          subtype.base_type == BASE_TYPE_ARRAY) {
         // We could support this, but it will complicate things, and it's
         // easier to work around with a struct around the inner vector.
         return Error(
@@ -541,7 +542,27 @@ CheckedError Parser::ParseType(Type &type) {
         return Error(
               "vector of union types not supported (wrap in table first).");
       }
-      type = Type(BASE_TYPE_VECTOR, subtype.struct_def, subtype.enum_def);
+      if (token_ == ':') {
+        if (!IsScalar(subtype.base_type)) {
+          return Error(
+                "arrays of non-scalar types not supported.");
+        }
+        NEXT();
+        if (token_ != kTokenIntegerConstant) {
+          return Error(
+                "length of fixed-length array must be an integer value.");
+        }
+        int64_t fixed_length = StringToInt(attribute_.c_str());
+        if (fixed_length < 1 || fixed_length > MAXSHORT) {
+          return Error(
+                "length of fixed-length array must be positive and fit to short type.");
+        }
+        type = Type(BASE_TYPE_ARRAY, subtype.struct_def, 
+                    subtype.enum_def, (int16_t)fixed_length);
+        NEXT();
+      } else {
+        type = Type(BASE_TYPE_VECTOR, subtype.struct_def, subtype.enum_def);
+      }
       type.element = subtype.base_type;
       EXPECT(']');
     } else {
@@ -583,8 +604,11 @@ CheckedError Parser::ParseField(StructDef &struct_def) {
   Type type;
   ECHECK(ParseType(type));
 
-  if (struct_def.fixed && !IsScalar(type.base_type) && !IsStruct(type))
+  if (struct_def.fixed && !IsScalar(type.base_type) && 
+      !IsStruct(type) && type.base_type != BASE_TYPE_ARRAY)
     return Error("structs_ may contain only scalar or struct fields");
+  if (!struct_def.fixed && type.base_type == BASE_TYPE_ARRAY)
+    return Error("tables can't contain fixed-length arrays.");
 
   FieldDef *typefield = nullptr;
   if (type.base_type == BASE_TYPE_UNION) {
